@@ -1,7 +1,7 @@
 name: Build Android TV APK
 
 on:
-  workflow_dispatch: # Запуск вручную по кнопке
+  workflow_dispatch:
 
 jobs:
   build:
@@ -14,8 +14,10 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.5'
 
       - name: Generate Project Files
         run: |
@@ -41,7 +43,6 @@ jobs:
           cat << 'EOF' > build.gradle
           plugins {
               id 'com.android.application' version '8.2.2' apply false
-              id 'org.jetbrains.kotlin.android' version '1.9.22' apply false
           }
           EOF
 
@@ -49,13 +50,13 @@ jobs:
           cat << 'EOF' > gradle.properties
           android.useAndroidX=true
           android.nonTransitiveRClass=true
+          org.gradle.jvmargs=-Xmx2048m
           EOF
 
           # app/build.gradle
           cat << 'EOF' > app/build.gradle
           plugins {
               id 'com.android.application'
-              id 'org.jetbrains.kotlin.android'
           }
           android {
               namespace 'com.racing.rbrlauncher'
@@ -76,10 +77,8 @@ jobs:
                   sourceCompatibility JavaVersion.VERSION_1_8
                   targetCompatibility JavaVersion.VERSION_1_8
               }
-              kotlinOptions { jvmTarget = '1.8' }
           }
           dependencies {
-              implementation 'androidx.core:core-ktx:1.12.0'
               implementation 'androidx.appcompat:appcompat:1.6.1'
               implementation 'com.google.android.material:material:1.11.0'
           }
@@ -112,63 +111,96 @@ jobs:
           </manifest>
           EOF
 
-          # MainActivity.kt
-          cat << 'EOF' > app/src/main/java/com/racing/rbrlauncher/MainActivity.kt
-          package com.racing.rbrlauncher
-          import android.content.Intent
-          import android.os.Bundle
-          import android.os.Handler
-          import android.os.Looper
-          import android.provider.Settings
-          import android.view.View
-          import android.widget.TextView
-          import android.widget.Toast
-          import androidx.appcompat.app.AppCompatActivity
-          import java.text.SimpleDateFormat
-          import java.util.Date
-          import java.util.Locale
+          # MainActivity.java
+          cat << 'EOF' > app/src/main/java/com/racing/rbrlauncher/MainActivity.java
+          package com.racing.rbrlauncher;
 
-          class MainActivity : AppCompatActivity() {
-              private lateinit var tvClock: TextView
-              private lateinit var tvDate: TextView
-              private val handler = Handler(Looper.getMainLooper())
-              private val timeRunnable = object : Runnable {
-                  override fun run() {
-                      val now = Date()
-                      tvClock.text = SimpleDateFormat("HH:mm", Locale.getDefault()).format(now)
-                      tvDate.text = SimpleDateFormat("EEE, d MMM", Locale.getDefault()).format(now)
-                      handler.postDelayed(this, 1000)
+          import android.content.Intent;
+          import android.os.Bundle;
+          import android.os.Handler;
+          import android.os.Looper;
+          import android.provider.Settings;
+          import android.view.View;
+          import android.widget.TextView;
+          import android.widget.Toast;
+          import androidx.appcompat.app.AppCompatActivity;
+          import java.text.SimpleDateFormat;
+          import java.util.Arrays;
+          import java.util.Date;
+          import java.util.List;
+          import java.util.Locale;
+
+          public class MainActivity extends AppCompatActivity {
+              private TextView tvClock;
+              private TextView tvDate;
+              private final Handler handler = new Handler(Looper.getMainLooper());
+
+              private final Runnable timeRunnable = new Runnable() {
+                  @Override
+                  public void run() {
+                      Date now = new Date();
+                      tvClock.setText(new SimpleDateFormat("HH:mm", Locale.getDefault()).format(now));
+                      tvDate.setText(new SimpleDateFormat("EEE, d MMM", Locale.getDefault()).format(now));
+                      handler.postDelayed(this, 1000);
                   }
+              };
+
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  setContentView(R.layout.activity_main);
+
+                  tvClock = findViewById(R.id.tvClock);
+                  tvDate = findViewById(R.id.tvDate);
+
+                  setupAppCard(R.id.cardRutube, Arrays.asList("ru.rutube.tv", "ru.rutube.app"));
+                  setupAppCard(R.id.cardVk, Arrays.asList("com.vk.vkclient", "com.vkontakte.android"));
+                  setupAppCard(R.id.cardKinopoisk, Arrays.asList("ru.kinopoisk.tv", "ru.kinopoisk"));
+                  setupAppCard(R.id.cardYoutube, Arrays.asList("com.google.android.youtube.tv", "com.google.android.youtube"));
+                  setupAppCard(R.id.cardIncy, Arrays.asList("com.incy.vpn", "com.incy"));
+
+                  View firstCard = findViewById(R.id.cardRutube);
+                  if (firstCard != null) firstCard.requestFocus();
               }
-              override fun onCreate(savedInstanceState: Bundle?) {
-                  super.onCreate(savedInstanceState)
-                  setContentView(R.layout.activity_main)
-                  tvClock = findViewById(R.id.tvClock)
-                  tvDate = findViewById(R.id.tvDate)
-                  setupAppCard(R.id.cardRutube, listOf("ru.rutube.tv", "ru.rutube.app"))
-                  setupAppCard(R.id.cardVk, listOf("com.vk.vkclient", "com.vkontakte.android"))
-                  setupAppCard(R.id.cardKinopoisk, listOf("ru.kinopoisk.tv", "ru.kinopoisk"))
-                  setupAppCard(R.id.cardYoutube, listOf("com.google.android.youtube.tv", "com.google.android.youtube"))
-                  setupAppCard(R.id.cardIncy, listOf("com.incy.vpn", "com.incy"))
-                  findViewById<View>(R.id.cardRutube).requestFocus()
+
+              @Override
+              protected void onResume() {
+                  super.onResume();
+                  handler.post(timeRunnable);
               }
-              override fun onResume() { super.onResume(); handler.post(timeRunnable) }
-              override fun onPause() { super.onPause(); handler.removeCallbacks(timeRunnable) }
-              private fun setupAppCard(viewId: Int, packageIds: List<String>) {
-                  findViewById<View>(viewId).setOnClickListener {
-                      var launched = false
-                      for (pkg in packageIds) {
-                          val intent = packageManager.getLaunchIntentForPackage(pkg)
-                          if (intent != null) { startActivity(intent); launched = true; break }
+
+              @Override
+              protected void onPause() {
+                  super.onPause();
+                  handler.removeCallbacks(timeRunnable);
+              }
+
+              private void setupAppCard(int viewId, List<String> packageIds) {
+                  View v = findViewById(viewId);
+                  if (v == null) return;
+                  v.setOnClickListener(view -> {
+                      boolean launched = false;
+                      for (String pkg : packageIds) {
+                          Intent intent = getPackageManager().getLaunchIntentForPackage(pkg);
+                          if (intent != null) {
+                              startActivity(intent);
+                              launched = true;
+                              break;
+                          }
                       }
                       if (!launched) {
-                          Toast.makeText(this, "Открываю настройки...", Toast.LENGTH_SHORT).show()
-                          try { startActivity(Intent(Settings.ACTION_APPLICATION_SETTINGS)) } catch (e: Exception) {}
+                          Toast.makeText(MainActivity.this, "Приложение не найдено", Toast.LENGTH_SHORT).show();
+                          try {
+                              startActivity(new Intent(Settings.ACTION_APPLICATION_SETTINGS));
+                          } catch (Exception ignored) {}
                       }
-                  }
+                  });
               }
-              @Deprecated("Deprecated in Java")
-              override fun onBackPressed() {}
+
+              @Override
+              public void onBackPressed() {
+                  // Блокировка выхода по Back (Launcher)
+              }
           }
           EOF
 
@@ -294,11 +326,8 @@ jobs:
           </resources>
           EOF
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
-
-      - name: Build Debug APK
-        run: gradle assembleDebug
+      - name: Build APK
+        run: gradle assembleDebug --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
